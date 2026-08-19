@@ -6,7 +6,7 @@
 
     <meta
         name="viewport"
-        content="width=device-width, initial-scale=1.0"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
     >
 
     <meta
@@ -14,7 +14,12 @@
         content="#0b0f14"
     >
 
-    <title>Sound Box</title>
+    <meta
+        name="description"
+        content="Sound Box - Telegram VC Soundboard"
+    >
+
+    <title>🎵 Sound Box</title>
 
     <link
         rel="stylesheet"
@@ -22,55 +27,236 @@
     >
 </head>
 
+
 <body>
 
     <main class="container">
 
-        <!-- Header -->
+        <!-- ==================================================
+             HEADER
+        =================================================== -->
+
         <header class="header">
 
-            <h1>🎵 Sound Box</h1>
+            <div class="logo">
+                🎵
+            </div>
 
-            <p>
-                Tap a sound to play it in the VC
-            </p>
+            <div class="header-text">
+
+                <h1>
+                    Sound Box
+                </h1>
+
+                <p>
+                    Tap a sound to play it in VC
+                </p>
+
+            </div>
+
+            <button
+                id="refreshBtn"
+                class="refresh-btn"
+                type="button"
+                aria-label="Refresh sounds"
+            >
+                ↻
+            </button>
 
         </header>
 
 
-        <!-- Search -->
+        <!-- ==================================================
+             STATUS
+        =================================================== -->
+
+        <div
+            id="status"
+            class="status"
+        >
+
+            <span
+                id="statusDot"
+                class="status-dot"
+            ></span>
+
+            <span id="statusText">
+                Connecting...
+            </span>
+
+        </div>
+
+
+        <!-- ==================================================
+             SEARCH
+        =================================================== -->
+
         <div class="search-box">
+
+            <span class="search-icon">
+                🔎
+            </span>
 
             <input
                 id="search"
                 type="search"
                 placeholder="Search sounds..."
                 autocomplete="off"
+                spellcheck="false"
             >
+
+            <button
+                id="clearSearch"
+                class="clear-search"
+                type="button"
+                aria-label="Clear search"
+                hidden
+            >
+                ×
+            </button>
 
         </div>
 
 
-        <!-- Sounds -->
-        <section id="sounds">
+        <!-- ==================================================
+             SOUND COUNT
+        =================================================== -->
+
+        <div class="sound-info">
+
+            <span id="soundCount">
+                0 sounds
+            </span>
+
+        </div>
+
+
+        <!-- ==================================================
+             SOUNDS
+        =================================================== -->
+
+        <section
+            id="sounds"
+            class="sounds"
+            aria-live="polite"
+        >
 
             <div class="loading">
-                Loading sounds...
+
+                <div class="spinner"></div>
+
+                <p>
+                    Loading sounds...
+                </p>
+
             </div>
+
+        </section>
+
+
+        <!-- ==================================================
+             EMPTY STATE
+        =================================================== -->
+
+        <section
+            id="emptyState"
+            class="empty-state"
+            hidden
+        >
+
+            <div class="empty-icon">
+                🎵
+            </div>
+
+            <h2>
+                No sounds found
+            </h2>
+
+            <p>
+                Add sounds from the Telegram bot.
+            </p>
+
+        </section>
+
+
+        <!-- ==================================================
+             ERROR STATE
+        =================================================== -->
+
+        <section
+            id="errorState"
+            class="error-state"
+            hidden
+        >
+
+            <div class="error-icon">
+                ⚠️
+            </div>
+
+            <h2>
+                Connection failed
+            </h2>
+
+            <p id="errorText">
+                Could not load sounds.
+            </p>
+
+            <button
+                id="retryBtn"
+                class="retry-btn"
+                type="button"
+            >
+                Try Again
+            </button>
 
         </section>
 
     </main>
 
 
-    <!-- Toast -->
+    <!-- ======================================================
+         TOAST
+    ======================================================= -->
+
     <div
         id="toast"
         class="toast"
+        role="alert"
+        aria-live="assertive"
     ></div>
 
 
-    <script src="/static/app.js"></script>
+    <!-- ======================================================
+         LOADING OVERLAY
+    ======================================================= -->
+
+    <div
+        id="playOverlay"
+        class="play-overlay"
+        hidden
+    >
+
+        <div class="play-loader">
+
+            <div class="spinner"></div>
+
+            <span>
+                Playing...
+            </span>
+
+        </div>
+
+    </div>
+
+
+    <!-- ======================================================
+         JAVASCRIPT
+    ======================================================= -->
+
+    <script
+        src="/static/app.js"
+        defer
+    ></script>
 
 </body>
 
