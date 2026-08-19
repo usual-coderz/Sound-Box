@@ -14,20 +14,19 @@ PHONE_NUMBER = os.environ["PHONE_NUMBER"]
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SESSION_DIR = os.path.join(BASE_DIR, "sessions")
+CACHE_DIR = os.path.join(BASE_DIR, "cache")
+
 os.makedirs(SESSION_DIR, mode=0o700, exist_ok=True)
+os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
 
 SESSION_PATH = os.path.join(
     SESSION_DIR,
     "soundbox"
 )
 
-user = TelegramClient(
-    SESSION_PATH,
-    API_ID,
-    API_HASH
-)
-
-calls = PyTgCalls(user)
+# Do NOT initialize these at import time.
+user = None
+calls = None
 
 current_chat = None
 current_file = None
@@ -35,7 +34,16 @@ current_file = None
 
 async def start_player():
 
+    global user
+    global calls
+
     print("Starting Telegram user...")
+
+    user = TelegramClient(
+        SESSION_PATH,
+        API_ID,
+        API_HASH
+    )
 
     await user.start(
         phone=PHONE_NUMBER
@@ -43,17 +51,24 @@ async def start_player():
 
     print("Telegram user connected.")
 
+    calls = PyTgCalls(user)
+
     await calls.start()
 
     print("PyTgCalls started.")
 
 
-async def play_file(chat_id, file_path):
+async def play_file(chat_id: int, file_path: str):
 
     global current_chat
     global current_file
 
-    if not os.path.exists(file_path):
+    if calls is None:
+        raise RuntimeError(
+            "PyTgCalls is not initialized."
+        )
+
+    if not os.path.isfile(file_path):
         raise FileNotFoundError(
             f"Audio file not found: {file_path}"
         )
@@ -77,9 +92,13 @@ async def play_file(chat_id, file_path):
     )
 
 
-async def stop(chat_id):
+async def stop(chat_id: int):
 
+    global current_chat
     global current_file
+
+    if calls is None:
+        return
 
     try:
         await calls.leave_call(
@@ -87,29 +106,75 @@ async def stop(chat_id):
         )
     except Exception as e:
         print(
-            f"Leave call error: {e}"
+            f"leave_call error: {e}"
         )
 
+    current_chat = None
     current_file = None
 
 
-async def pause(chat_id):
+async def pause(chat_id: int):
+
+    if calls is None:
+        raise RuntimeError(
+            "PyTgCalls is not initialized."
+        )
 
     await calls.pause(
         chat_id
     )
 
 
-async def resume(chat_id):
+async def resume(chat_id: int):
+
+    if calls is None:
+        raise RuntimeError(
+            "PyTgCalls is not initialized."
+        )
 
     await calls.resume(
         chat_id
     )
 
 
-async def volume(chat_id, value):
+async def set_volume(
+    chat_id: int,
+    volume: int
+):
+
+    if calls is None:
+        raise RuntimeError(
+            "PyTgCalls is not initialized."
+        )
 
     await calls.change_volume_call(
         chat_id,
-        value
+        volume
     )
+
+
+async def shutdown_player():
+
+    global user
+    global calls
+
+    if calls is not None:
+
+        try:
+            await calls.stop()
+        except Exception as e:
+            print(
+                f"PyTgCalls stop error: {e}"
+            )
+
+    if user is not None:
+
+        try:
+            await user.disconnect()
+        except Exception as e:
+            print(
+                f"Telegram disconnect error: {e}"
+            )
+
+    calls = None
+    user = None
