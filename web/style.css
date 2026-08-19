@@ -1,0 +1,310 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    min-height: 100vh;
+    background: #0b0f14;
+    color: #ffffff;
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
+
+/* Main container */
+
+.container {
+    width: 100%;
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 25px 16px 40px;
+}
+
+/* Header */
+
+.header {
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+.header h1 {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.header p {
+    margin-top: 7px;
+    color: #8b95a5;
+    font-size: 14px;
+}
+
+/* Search */
+
+.search-box {
+    margin-bottom: 20px;
+}
+
+.search-box input {
+    width: 100%;
+    height: 48px;
+
+    border: 1px solid #252c36;
+    border-radius: 14px;
+
+    background: #121820;
+    color: white;
+
+    padding: 0 16px;
+    outline: none;
+
+    font-size: 15px;
+
+    transition: 0.2s;
+}
+
+.search-box input:focus {
+    border-color: #4c8dff;
+}
+
+.search-box input::placeholder {
+    color: #667180;
+}
+
+/* Sound list */
+
+#sounds {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Sound button */
+
+.sound-button {
+    width: 100%;
+    min-height: 62px;
+
+    border: 1px solid #252c36;
+    border-radius: 16px;
+
+    background: #121820;
+    color: white;
+
+    display: flex;
+    align-items: center;
+
+    padding: 10px 12px;
+
+    cursor: pointer;
+
+    transition:
+        transform 0.15s ease,
+        background 0.15s ease,
+        border-color 0.15s ease;
+}
+
+.sound-button:hover {
+    background: #171f29;
+    border-color: #344152;
+    transform: translateY(-1px);
+}
+
+.sound-button:active {
+    transform: scale(0.98);
+}
+
+/* Number */
+
+.sound-id {
+    min-width: 42px;
+    height: 42px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 12px;
+
+    background: #1d2632;
+
+    color: #8eb7ff;
+
+    font-size: 14px;
+    font-weight: 700;
+
+    margin-right: 12px;
+}
+
+/* Name */
+
+.sound-info {
+    flex: 1;
+    min-width: 0;
+
+    text-align: left;
+}
+
+.sound-name {
+    font-size: 16px;
+    font-weight: 600;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sound-subtitle {
+    margin-top: 3px;
+
+    color: #707b89;
+    font-size: 12px;
+}
+
+/* Play icon */
+
+.play-button {
+    width: 42px;
+    height: 42px;
+
+    flex-shrink: 0;
+
+    border: 0;
+    border-radius: 50%;
+
+    background: #ffffff;
+    color: #0b0f14;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    font-size: 16px;
+
+    cursor: pointer;
+}
+
+/* Loading */
+
+.loading {
+    text-align: center;
+
+    padding: 35px 10px;
+
+    color: #7d8794;
+
+    font-size: 14px;
+}
+
+/* Empty */
+
+.empty {
+    text-align: center;
+
+    padding: 50px 20px;
+
+    border: 1px dashed #2a333f;
+    border-radius: 16px;
+
+    color: #737e8c;
+}
+
+.empty-icon {
+    font-size: 35px;
+    margin-bottom: 10px;
+}
+
+/* Playing state */
+
+.sound-button.playing {
+    border-color: #4c8dff;
+    background: #151e2a;
+}
+
+.sound-button.playing .play-button {
+    background: #4c8dff;
+    color: white;
+}
+
+/* Toast */
+
+.toast {
+    position: fixed;
+
+    left: 50%;
+    bottom: 25px;
+
+    transform: translateX(-50%);
+
+    background: #ffffff;
+    color: #0b0f14;
+
+    padding: 12px 18px;
+
+    border-radius: 12px;
+
+    font-size: 14px;
+    font-weight: 600;
+
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.35);
+
+    opacity: 0;
+    pointer-events: none;
+
+    transition: opacity 0.2s ease;
+}
+
+.toast.show {
+    opacity: 1;
+}
+
+/* Desktop */
+
+@media (min-width: 600px) {
+
+    .container {
+        padding-top: 45px;
+    }
+
+    .header h1 {
+        font-size: 34px;
+    }
+
+    .sound-button {
+        min-height: 68px;
+    }
+}
+
+/* Small phones */
+
+@media (max-width: 380px) {
+
+    .container {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .header h1 {
+        font-size: 26px;
+    }
+
+    .sound-name {
+        font-size: 15px;
+    }
+
+    .sound-id {
+        min-width: 38px;
+        height: 38px;
+    }
+
+    .play-button {
+        width: 38px;
+        height: 38px;
+    }
+}
