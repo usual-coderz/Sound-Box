@@ -1,5 +1,4 @@
 import os
-import asyncio
 
 from dotenv import load_dotenv
 from telethon import TelegramClient
@@ -12,92 +11,105 @@ API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 PHONE_NUMBER = os.environ["PHONE_NUMBER"]
 
-DEFAULT_VC_CHAT_ID = int(os.environ["DEFAULT_VC_CHAT_ID"])
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-session = "sessions/soundbox"
+SESSION_DIR = os.path.join(BASE_DIR, "sessions")
+os.makedirs(SESSION_DIR, mode=0o700, exist_ok=True)
+
+SESSION_PATH = os.path.join(
+    SESSION_DIR,
+    "soundbox"
+)
 
 user = TelegramClient(
-    session,
+    SESSION_PATH,
     API_ID,
     API_HASH
 )
 
 calls = PyTgCalls(user)
 
-queue = []
-current = None
-playing_chat = None
+current_chat = None
+current_file = None
 
 
 async def start_player():
+
+    print("Starting Telegram user...")
+
     await user.start(
         phone=PHONE_NUMBER
     )
 
+    print("Telegram user connected.")
+
     await calls.start()
 
-    print("Telegram user connected.")
     print("PyTgCalls started.")
 
 
 async def play_file(chat_id, file_path):
-    global current
-    global playing_chat
 
-    playing_chat = chat_id
-    current = file_path
+    global current_chat
+    global current_file
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(
+            f"Audio file not found: {file_path}"
+        )
+
+    current_chat = chat_id
+    current_file = file_path
+
+    print(
+        f"Playing {file_path} "
+        f"in {chat_id}"
+    )
 
     stream = MediaStream(
         file_path,
         video_flags=MediaStream.Flags.IGNORE
     )
 
-    try:
-        await calls.play(
-            chat_id,
-            stream
-        )
-
-    except Exception:
-        # Depending on PyTgCalls version,
-        # play may need a joined call first.
-        await calls.join_group_call(
-            chat_id,
-            stream
-        )
+    await calls.play(
+        chat_id,
+        stream
+    )
 
 
 async def stop(chat_id):
-    global current
+
+    global current_file
 
     try:
-        await calls.leave_group_call(chat_id)
-    except Exception:
-        pass
+        await calls.leave_call(
+            chat_id
+        )
+    except Exception as e:
+        print(
+            f"Leave call error: {e}"
+        )
 
-    current = None
+    current_file = None
 
 
 async def pause(chat_id):
-    try:
-        await calls.pause(chat_id)
-    except Exception:
-        pass
+
+    await calls.pause(
+        chat_id
+    )
 
 
 async def resume(chat_id):
-    try:
-        await calls.resume(chat_id)
-    except Exception:
-        pass
+
+    await calls.resume(
+        chat_id
+    )
 
 
-async def add_queue(item):
-    queue.append(item)
+async def volume(chat_id, value):
 
-
-async def next_item():
-    if not queue:
-        return None
-
-    return queue.pop(0)
+    await calls.change_volume_call(
+        chat_id,
+        value
+    )
