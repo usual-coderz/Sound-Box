@@ -4,21 +4,21 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from aiogram import Bot
+from dotenv import load_dotenv
 
 from database import (
     get_all_sounds,
     get_sound_by_id,
 )
 
-from player import play_file
+from player import play_file, user
 
 
 # ============================================================
 # ENV
 # ============================================================
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
+load_dotenv()
 
 DEFAULT_VC_CHAT_ID = int(
     os.environ["DEFAULT_VC_CHAT_ID"]
@@ -29,26 +29,15 @@ DEFAULT_VC_CHAT_ID = int(
 # PATHS
 # ============================================================
 
-BASE_DIR = Path(
-    __file__
-).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent
 
 WEB_DIR = BASE_DIR / "web"
 
 CACHE_DIR = BASE_DIR / "cache"
 
 CACHE_DIR.mkdir(
-    parents=True,
+    mode=0o700,
     exist_ok=True
-)
-
-
-# ============================================================
-# BOT
-# ============================================================
-
-bot = Bot(
-    token=BOT_TOKEN
 )
 
 
@@ -88,28 +77,31 @@ async def home():
 
 
 # ============================================================
-# HEALTH
-# ============================================================
-
-@app.get("/api/health")
-async def health():
-
-    return {
-        "ok": True,
-        "service": "Sound Box"
-    }
-
-
-# ============================================================
-# GET SOUNDS
+# SOUNDS API
 # ============================================================
 
 @app.get("/api/sounds")
 async def api_sounds():
 
-    sounds = await get_all_sounds()
+    try:
+
+        sounds = await get_all_sounds()
+
+    except Exception as e:
+
+        print(
+            "MongoDB sounds error:",
+            repr(e)
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Database error"
+        )
+
 
     result = []
+
 
     for sound in sounds:
 
@@ -117,34 +109,62 @@ async def api_sounds():
             "sound_id"
         )
 
+
+        # Web buttons ke liye ID required
         if sound_id is None:
             continue
 
+
         result.append({
 
-            "sound_id": int(
-                sound_id
-            ),
+            "sound_id":
+                sound_id,
 
-            "name": sound.get(
-                "name",
-                "Unknown"
-            ),
+            "name":
+                sound.get(
+                    "name",
+                    "Unknown"
+                ),
 
-            "duration": sound.get(
-                "duration"
-            )
+            "duration":
+                sound.get(
+                    "duration"
+                )
         })
+
 
     result.sort(
         key=lambda x: x["sound_id"]
     )
 
+
     return result
 
 
 # ============================================================
-# CACHE PATH
+# FILE EXTENSION
+# ============================================================
+
+def get_extension(sound):
+
+    file_type = sound.get(
+        "file_type"
+    )
+
+
+    if file_type == "audio":
+        return ".mp3"
+
+
+    if file_type == "voice":
+        return ".ogg"
+
+
+    return ".bin"
+
+
+# ============================================================
+# CACHE FILE
 # ============================================================
 
 def get_cache_path(sound):
@@ -153,29 +173,12 @@ def get_cache_path(sound):
         sound["_id"]
     )
 
-    file_type = sound.get(
-        "file_type"
+    extension = get_extension(
+        sound
     )
 
-    if file_type == "audio":
-
-        extension = ".mp3"
-
-    elif file_type == "voice":
-
-        extension = ".ogg"
-
-    elif file_type == "document":
-
-        extension = ".bin"
-
-    else:
-
-        extension = ".bin"
-
-    return (
-        CACHE_DIR /
-        f"{mongo_id}{extension}"
+    return CACHE_DIR / (
+        mongo_id + extension
     )
 
 
@@ -183,101 +186,94 @@ def get_cache_path(sound):
 # DOWNLOAD SOUND
 # ============================================================
 
-async def download_sound(
-    sound,
-    file_path: Path
-):
+async def ensure_cached(sound):
 
-    storage_chat_id = sound.get(
-        "storage_chat_id"
+    file_path = get_cache_path(
+        sound
     )
 
-    storage_message_id = sound.get(
-        "storage_message_id"
+
+    # Already cached
+    if (
+        file_path.exists()
+        and
+        file_path.stat().st_size > 0
+    ):
+
+        return file_path
+
+
+    # Telegram user client check
+    #
+    # player.py mein user global
+    # start_player() ke baad available hota hai.
+
+    import player
+
+    telegram_user = (
+        player.user
     )
 
-    if not storage_chat_id:
+
+    if telegram_user is None:
+
         raise RuntimeError(
-            "Storage channel ID missing."
+            "Telegram user is not connected."
         )
 
-    if not storage_message_id:
-        raise RuntimeError(
-            "Storage message ID missing."
-        )
-
-    print(
-        f"⬇️ Downloading: "
-        f"{sound.get('name', 'Unknown')}"
-    )
-
-    print(
-        f"📦 Channel: {storage_chat_id}"
-    )
-
-    print(
-        f"📨 Message: {storage_message_id}"
-    )
-
-    # --------------------------------------------------------
-    # Telegram Bot API
-    # --------------------------------------------------------
-
-    message = await bot.forward_message(
-        chat_id=storage_chat_id,
-        from_chat_id=storage_chat_id,
-        message_id=storage_message_id
-    )
-
-    # --------------------------------------------------------
-    # IMPORTANT
-    # --------------------------------------------------------
-    #
-    # forward_message() creates a new message.
-    # We don't need that.
-    #
-    # Better approach:
-    # use Telegram file_id saved in MongoDB.
-    #
-    # The original bot_file_id is already available.
-    #
-
-    try:
-
-        await bot.delete_message(
-            chat_id=storage_chat_id,
-            message_id=message.message_id
-        )
-
-    except Exception:
-        pass
 
     file_id = sound.get(
         "bot_file_id"
     )
 
+
     if not file_id:
 
         raise RuntimeError(
-            "bot_file_id missing from database."
+            "Sound does not have Telegram file_id."
         )
 
-    # --------------------------------------------------------
-    # Download
-    # --------------------------------------------------------
 
-    await bot.download(
-        file_id,
-        destination=str(file_path)
+    print(
+        f"⬇️ Web downloading: "
+        f"{sound.get('name', 'Unknown')}"
     )
+
+
+    try:
+
+        downloaded = await telegram_user.download_media(
+            file_id,
+            file=str(file_path)
+        )
+
+    except Exception as e:
+
+        print(
+            "Telegram download error:",
+            repr(e)
+        )
+
+        raise RuntimeError(
+            f"Telegram download failed: {e}"
+        )
+
+
+    if not downloaded:
+
+        raise RuntimeError(
+            "Telegram returned no file."
+        )
+
 
     if not file_path.exists():
 
         raise RuntimeError(
-            "Telegram download failed."
+            "Downloaded file was not created."
         )
 
-    if file_path.stat().st_size == 0:
+
+    if file_path.stat().st_size <= 0:
 
         try:
             file_path.unlink()
@@ -285,77 +281,97 @@ async def download_sound(
             pass
 
         raise RuntimeError(
-            "Downloaded audio file is empty."
+            "Downloaded file is empty."
         )
+
 
     print(
         f"✅ Cached: {file_path}"
     )
 
 
+    return file_path
+
+
 # ============================================================
 # PLAY SOUND
 # ============================================================
 
-@app.post(
-    "/api/play/{sound_id}"
-)
+@app.post("/api/play/{sound_id}")
 async def api_play(
     sound_id: int
 ):
 
-    sound = await get_sound_by_id(
-        sound_id
-    )
+    # --------------------------------------------------------
+    # Find sound
+    # --------------------------------------------------------
+
+    try:
+
+        sound = await get_sound_by_id(
+            sound_id
+        )
+
+    except Exception as e:
+
+        print(
+            "Database error:",
+            repr(e)
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Database error"
+        )
+
 
     if not sound:
 
         raise HTTPException(
             status_code=404,
-            detail="Sound not found."
+            detail="Sound not found"
         )
+
 
     name = sound.get(
         "name",
         "Unknown"
     )
 
-    file_path = get_cache_path(
-        sound
-    )
 
     # --------------------------------------------------------
-    # Download if not cached
+    # Cache / Download
     # --------------------------------------------------------
 
-    if not file_path.exists():
+    try:
 
-        try:
+        file_path = await ensure_cached(
+            sound
+        )
 
-            await download_sound(
-                sound,
-                file_path
-            )
+    except Exception as e:
 
-        except Exception as e:
+        print(
+            "Cache error:",
+            repr(e)
+        )
 
-            print(
-                "❌ Download error:",
-                repr(e)
-            )
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    f"Audio download failed: {e}"
-                )
-            )
 
     # --------------------------------------------------------
     # Play
     # --------------------------------------------------------
 
     try:
+
+        print(
+            f"🌐 Web play: "
+            f"{name}"
+        )
 
         await play_file(
             DEFAULT_VC_CHAT_ID,
@@ -365,7 +381,7 @@ async def api_play(
     except Exception as e:
 
         print(
-            "❌ Web playback error:",
+            "Web playback error:",
             repr(e)
         )
 
@@ -374,28 +390,38 @@ async def api_play(
             detail=str(e)
         )
 
+
     return {
 
         "ok": True,
 
-        "sound_id": sound_id,
+        "sound_id":
+            sound_id,
 
-        "name": name,
-
-        "playing": True
+        "name":
+            name
     }
 
 
 # ============================================================
-# CLOSE BOT
+# HEALTH CHECK
 # ============================================================
 
-@app.on_event("shutdown")
-async def shutdown_web():
+@app.get("/api/health")
+async def health():
 
-    try:
+    import player
 
-        await bot.session.close()
+    return {
 
-    except Exception:
-        pass
+        "ok": True,
+
+        "telegram":
+            player.user is not None,
+
+        "player":
+            player.calls is not None,
+
+        "vc_chat_id":
+            DEFAULT_VC_CHAT_ID
+    }
