@@ -5,26 +5,73 @@ from telethon import TelegramClient
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
 
+
+# ============================================================
+# ENV
+# ============================================================
+
 load_dotenv()
 
-API_ID = int(os.environ["API_ID"])
-API_HASH = os.environ["API_HASH"]
-PHONE_NUMBER = os.environ["PHONE_NUMBER"]
+API_ID = int(
+    os.environ["API_ID"]
+)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+API_HASH = os.environ[
+    "API_HASH"
+]
 
-SESSION_DIR = os.path.join(BASE_DIR, "sessions")
-CACHE_DIR = os.path.join(BASE_DIR, "cache")
+PHONE_NUMBER = os.environ[
+    "PHONE_NUMBER"
+]
 
-os.makedirs(SESSION_DIR, mode=0o700, exist_ok=True)
-os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+
+# ============================================================
+# PATHS
+# ============================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
+SESSION_DIR = os.path.join(
+    BASE_DIR,
+    "sessions"
+)
+
+CACHE_DIR = os.path.join(
+    BASE_DIR,
+    "cache"
+)
+
+os.makedirs(
+    SESSION_DIR,
+    mode=0o700,
+    exist_ok=True
+)
+
+os.makedirs(
+    CACHE_DIR,
+    mode=0o700,
+    exist_ok=True
+)
 
 SESSION_PATH = os.path.join(
     SESSION_DIR,
     "soundbox"
 )
 
-# Do NOT initialize these at import time.
+
+# ============================================================
+# GLOBAL CLIENTS
+# ============================================================
+
+# IMPORTANT:
+# In objects ko module import ke time create nahi karna.
+# start_player() ke andar create karna hai.
+#
+# Isse aiogram + Telethon + PyTgCalls
+# same asyncio event loop use karenge.
+
 user = None
 calls = None
 
@@ -32,12 +79,24 @@ current_chat = None
 current_file = None
 
 
+# ============================================================
+# START
+# ============================================================
+
 async def start_player():
 
     global user
     global calls
 
-    print("Starting Telegram user...")
+    if user is not None:
+        return
+
+    print("🎧 Starting Telegram user...")
+
+
+    # --------------------------------------------------------
+    # Telethon
+    # --------------------------------------------------------
 
     user = TelegramClient(
         SESSION_PATH,
@@ -45,46 +104,92 @@ async def start_player():
         API_HASH
     )
 
+
     await user.start(
         phone=PHONE_NUMBER
     )
 
-    print("Telegram user connected.")
 
-    calls = PyTgCalls(user)
+    print(
+        "✅ Telegram user connected."
+    )
+
+
+    # --------------------------------------------------------
+    # PyTgCalls
+    # --------------------------------------------------------
+
+    calls = PyTgCalls(
+        user
+    )
+
 
     await calls.start()
 
-    print("PyTgCalls started.")
+
+    print(
+        "✅ PyTgCalls started."
+    )
 
 
-async def play_file(chat_id: int, file_path: str):
+# ============================================================
+# PLAY
+# ============================================================
+
+async def play_file(
+    chat_id: int,
+    file_path: str
+):
 
     global current_chat
     global current_file
 
+
     if calls is None:
+
         raise RuntimeError(
-            "PyTgCalls is not initialized."
+            "PyTgCalls is not started."
         )
 
-    if not os.path.isfile(file_path):
+
+    if not os.path.isfile(
+        file_path
+    ):
+
         raise FileNotFoundError(
             f"Audio file not found: {file_path}"
         )
 
+
     current_chat = chat_id
+
     current_file = file_path
 
+
     print(
-        f"Playing {file_path} "
-        f"in {chat_id}"
+        f"▶ Playing: {file_path}"
     )
+
+    print(
+        f"📞 VC Chat: {chat_id}"
+    )
+
+
+    # --------------------------------------------------------
+    # PyTgCalls 2.3.x
+    # --------------------------------------------------------
+    #
+    # join_group_call() use nahi karna.
+    #
+    # play() automatically starts/joins
+    # the group call.
+    #
 
     stream = MediaStream(
         file_path,
         video_flags=MediaStream.Flags.IGNORE
     )
+
 
     await calls.play(
         chat_id,
@@ -92,50 +197,101 @@ async def play_file(chat_id: int, file_path: str):
     )
 
 
-async def stop(chat_id: int):
+    print(
+        "✅ Playback started."
+    )
+
+
+# ============================================================
+# STOP
+# ============================================================
+
+async def stop(
+    chat_id: int
+):
 
     global current_chat
     global current_file
 
+
     if calls is None:
         return
 
+
     try:
+
         await calls.leave_call(
             chat_id
         )
-    except Exception as e:
+
         print(
-            f"leave_call error: {e}"
+            "⏹ Call stopped."
         )
+
+    except Exception as e:
+
+        print(
+            f"❌ Stop error: {e}"
+        )
+
 
     current_chat = None
     current_file = None
 
 
-async def pause(chat_id: int):
+# ============================================================
+# PAUSE
+# ============================================================
+
+async def pause(
+    chat_id: int
+):
 
     if calls is None:
+
         raise RuntimeError(
-            "PyTgCalls is not initialized."
+            "PyTgCalls is not started."
         )
+
 
     await calls.pause(
         chat_id
     )
 
 
-async def resume(chat_id: int):
+    print(
+        "⏸ Playback paused."
+    )
+
+
+# ============================================================
+# RESUME
+# ============================================================
+
+async def resume(
+    chat_id: int
+):
 
     if calls is None:
+
         raise RuntimeError(
-            "PyTgCalls is not initialized."
+            "PyTgCalls is not started."
         )
+
 
     await calls.resume(
         chat_id
     )
 
+
+    print(
+        "▶ Playback resumed."
+    )
+
+
+# ============================================================
+# VOLUME
+# ============================================================
 
 async def set_volume(
     chat_id: int,
@@ -143,9 +299,20 @@ async def set_volume(
 ):
 
     if calls is None:
+
         raise RuntimeError(
-            "PyTgCalls is not initialized."
+            "PyTgCalls is not started."
         )
+
+
+    volume = max(
+        0,
+        min(
+            int(volume),
+            200
+        )
+    )
+
 
     await calls.change_volume_call(
         chat_id,
@@ -153,28 +320,62 @@ async def set_volume(
     )
 
 
+# ============================================================
+# STATUS
+# ============================================================
+
+def get_current():
+
+    return {
+        "chat_id": current_chat,
+        "file": current_file
+    }
+
+
+# ============================================================
+# SHUTDOWN
+# ============================================================
+
 async def shutdown_player():
 
     global user
     global calls
 
+    print(
+        "🛑 Shutting down player..."
+    )
+
+
     if calls is not None:
 
         try:
+
             await calls.stop()
+
         except Exception as e:
+
             print(
-                f"PyTgCalls stop error: {e}"
+                f"PyTgCalls shutdown error: {e}"
             )
+
 
     if user is not None:
 
         try:
+
             await user.disconnect()
+
         except Exception as e:
+
             print(
-                f"Telegram disconnect error: {e}"
+                f"Telegram shutdown error: {e}"
             )
+
 
     calls = None
     user = None
+
+
+    print(
+        "✅ Player stopped."
+    )
