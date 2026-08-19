@@ -1,7 +1,8 @@
-import os
 import asyncio
+import os
 from datetime import datetime, timezone
 
+import uvicorn
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher
@@ -12,8 +13,9 @@ from database import (
     init_db,
     save_sound,
     get_sound,
+    get_sound_by_id,
     get_all_sounds,
-    delete_sound
+    delete_sound,
 )
 
 from player import (
@@ -22,8 +24,10 @@ from player import (
     stop,
     pause,
     resume,
-    shutdown_player
+    shutdown_player,
 )
+
+from web import app
 
 
 # ============================================================
@@ -46,6 +50,18 @@ DEFAULT_VC_CHAT_ID = int(
     os.environ["DEFAULT_VC_CHAT_ID"]
 )
 
+WEB_HOST = os.getenv(
+    "WEB_HOST",
+    "0.0.0.0"
+)
+
+WEB_PORT = int(
+    os.getenv(
+        "WEB_PORT",
+        "8000"
+    )
+)
+
 
 # ============================================================
 # BOT
@@ -62,53 +78,89 @@ dp = Dispatcher()
 # HELPERS
 # ============================================================
 
-def is_owner(message: Message) -> bool:
+def is_owner(
+    message: Message
+) -> bool:
 
-    return bool(
-        message.from_user
-        and message.from_user.id == OWNER_ID
+    return (
+        message.from_user is not None
+        and
+        message.from_user.id == OWNER_ID
     )
 
 
-def is_private(message: Message) -> bool:
+def is_private(
+    message: Message
+) -> bool:
 
-    return message.chat.type == "private"
+    return (
+        message.chat.type == "private"
+    )
 
 
-def extract_file(message: Message):
+def extract_file(
+    message: Message
+):
 
-    # Audio
     if message.audio:
 
         return {
-            "file_id": message.audio.file_id,
-            "unique_id": message.audio.file_unique_id,
-            "type": "audio",
-            "name": message.audio.file_name,
-            "duration": message.audio.duration
+            "file_id":
+                message.audio.file_id,
+
+            "unique_id":
+                message.audio.file_unique_id,
+
+            "type":
+                "audio",
+
+            "name":
+                message.audio.file_name,
+
+            "duration":
+                message.audio.duration,
         }
 
-    # Voice
+
     if message.voice:
 
         return {
-            "file_id": message.voice.file_id,
-            "unique_id": message.voice.file_unique_id,
-            "type": "voice",
-            "name": None,
-            "duration": message.voice.duration
+            "file_id":
+                message.voice.file_id,
+
+            "unique_id":
+                message.voice.file_unique_id,
+
+            "type":
+                "voice",
+
+            "name":
+                None,
+
+            "duration":
+                message.voice.duration,
         }
 
-    # Document
+
     if message.document:
 
         return {
-            "file_id": message.document.file_id,
-            "unique_id": message.document.file_unique_id,
-            "type": "document",
-            "name": message.document.file_name,
-            "duration": None
+            "file_id":
+                message.document.file_id,
+
+            "unique_id":
+                message.document.file_unique_id,
+
+            "type":
+                "document",
+
+            "name":
+                message.document.file_name,
+
+            "duration":
+                None,
         }
+
 
     return None
 
@@ -117,22 +169,30 @@ def extract_file(message: Message):
 # START
 # ============================================================
 
-@dp.message(Command("start"))
-async def start_command(message: Message):
+@dp.message(
+    Command("start")
+)
+async def start_command(
+    message: Message
+):
 
     await message.answer(
         "🎵 <b>Sound Box</b>\n\n"
 
-        "/sounds — sounds list\n"
-        "/get &lt;name&gt; — get sound\n"
-        "/play &lt;name&gt; — play in VC\n\n"
-
-        "Owner:\n"
-        "/add &lt;name&gt; &lt;id&gt;\n"
-        "/delete &lt;name&gt;\n"
+        "🎧 Playback:\n"
+        "/play 1\n"
+        "/play hello\n"
         "/stop\n"
         "/pause\n"
-        "/resume",
+        "/resume\n\n"
+
+        "📚 Sounds:\n"
+        "/sounds\n"
+        "/get hello\n\n"
+
+        "👑 Owner:\n"
+        "Reply audio + /add hello 1\n"
+        "/delete hello",
 
         parse_mode="HTML"
     )
@@ -142,53 +202,68 @@ async def start_command(message: Message):
 # ADD SOUND
 # ============================================================
 
-@dp.message(Command("add"))
-async def add_sound(message: Message):
+@dp.message(
+    Command("add")
+)
+async def add_sound_command(
+    message: Message
+):
 
     # Owner only
     if not is_owner(message):
         return
 
+
     # DM only
     if not is_private(message):
 
         await message.answer(
-            "❌ /add sirf bot ke DM mein use kar sakte ho."
+            "❌ /add sirf owner DM mein use karo."
         )
 
         return
 
-    # Must reply to audio
+
+    # Must reply
     if not message.reply_to_message:
 
         await message.answer(
-            "❌ Pehle audio/voice ko reply karo.\n\n"
-            "Example:\n"
-            "/add hello 1"
+            "❌ Audio ko reply karke use karo:\n\n"
+            "<code>/add hello 1</code>",
+            parse_mode="HTML"
         )
 
         return
 
+
     args = message.text.split()
+
 
     if len(args) < 2:
 
         await message.answer(
-            "❌ Usage:\n"
-            "/add hello 1"
+            "Example:\n"
+            "<code>/add hello 1</code>",
+            parse_mode="HTML"
         )
 
         return
 
+
     name = args[1].strip().lower()
+
 
     # Optional numeric ID
     sound_id = None
 
+
     if len(args) >= 3:
 
         try:
-            sound_id = int(args[2])
+
+            sound_id = int(
+                args[2]
+            )
 
         except ValueError:
 
@@ -198,33 +273,52 @@ async def add_sound(message: Message):
 
             return
 
-    # Extract Telegram file
-    file_data = extract_file(
-        message.reply_to_message
-    )
-
-    if not file_data:
-
-        await message.answer(
-            "❌ Replied message mein "
-            "audio/voice/document nahi mila."
-        )
-
-        return
 
     # Check duplicate name
-    existing = await get_sound(
+    old = await get_sound(
         name
     )
 
-    if existing:
+
+    if old:
 
         await message.answer(
-            f"❌ <code>{name}</code> already exists.",
-            parse_mode="HTML"
+            "❌ Ye sound already exist karta hai."
         )
 
         return
+
+
+    # Check duplicate ID
+    if sound_id is not None:
+
+        old_id = await get_sound_by_id(
+            sound_id
+        )
+
+        if old_id:
+
+            await message.answer(
+                "❌ Ye sound ID already exist karti hai."
+            )
+
+            return
+
+
+    # Extract media
+    file = extract_file(
+        message.reply_to_message
+    )
+
+
+    if not file:
+
+        await message.answer(
+            "❌ Audio, voice ya document reply karo."
+        )
+
+        return
+
 
     # ========================================================
     # COPY TO STORAGE CHANNEL
@@ -232,10 +326,17 @@ async def add_sound(message: Message):
 
     try:
 
-        copied = await bot.copy_message(
+        sent = await bot.copy_message(
+
             chat_id=STORAGE_CHANNEL_ID,
+
             from_chat_id=message.chat.id,
-            message_id=message.reply_to_message.message_id
+
+            message_id=(
+                message
+                .reply_to_message
+                .message_id
+            )
         )
 
     except Exception as e:
@@ -247,85 +348,90 @@ async def add_sound(message: Message):
 
         await message.answer(
             "❌ Storage channel mein audio copy nahi hua.\n\n"
-            "Check karo:\n"
-            "• Bot channel mein admin hai\n"
-            "• STORAGE_CHANNEL_ID correct hai"
+            "Check karo bot channel mein admin hai."
         )
 
         return
 
+
     # ========================================================
-    # SAVE MONGODB
+    # DATABASE
     # ========================================================
 
-    document = {
+    data = {
 
-        "name": name,
+        "name":
+            name,
 
-        "sound_id": sound_id,
+        "sound_id":
+            sound_id,
 
-        "bot_file_id": file_data["file_id"],
+        "bot_file_id":
+            file["file_id"],
 
         "file_unique_id":
-            file_data["unique_id"],
+            file["unique_id"],
 
         "file_type":
-            file_data["type"],
-
-        "file_name":
-            file_data["name"],
-
-        "duration":
-            file_data["duration"],
+            file["type"],
 
         "storage_chat_id":
             STORAGE_CHANNEL_ID,
 
         "storage_message_id":
-            copied.message_id,
+            sent.message_id,
+
+        "file_name":
+            file["name"],
+
+        "duration":
+            file["duration"],
 
         "created_by":
             OWNER_ID,
 
         "created_at":
-            datetime.now(timezone.utc)
+            datetime.now(
+                timezone.utc
+            ),
     }
+
 
     try:
 
         await save_sound(
-            document
+            data
         )
 
     except Exception as e:
 
         print(
-            "MongoDB error:",
+            "MongoDB save error:",
             repr(e)
         )
 
         await message.answer(
-            "❌ MongoDB mein save nahi hua."
+            f"❌ MongoDB error:\n<code>{e}</code>",
+            parse_mode="HTML"
         )
 
         return
 
-    # ========================================================
-    # SUCCESS
-    # ========================================================
 
     await message.answer(
 
-        "✅ <b>Sound Saved</b>\n\n"
+        "✅ <b>Sound saved!</b>\n\n"
 
         f"🎵 Name: "
         f"<code>{name}</code>\n"
 
         f"🔢 ID: "
-        f"<code>{sound_id or 'N/A'}</code>\n"
+        f"<code>{sound_id}</code>\n"
 
         f"📦 Storage message: "
-        f"<code>{copied.message_id}</code>",
+        f"<code>{sent.message_id}</code>\n\n"
+
+        "🌐 Web soundboard mein bhi automatically appear hoga.",
 
         parse_mode="HTML"
     )
@@ -335,35 +441,46 @@ async def add_sound(message: Message):
 # SOUNDS
 # ============================================================
 
-@dp.message(Command("sounds"))
-async def sounds_command(message: Message):
+@dp.message(
+    Command("sounds")
+)
+async def sounds_command(
+    message: Message
+):
 
     data = await get_all_sounds()
+
 
     if not data:
 
         await message.answer(
-            "📭 No sounds saved."
+            "📭 No sounds."
         )
 
         return
 
+
     text = (
-        "🎵 <b>Available Sounds</b>\n\n"
+        "🎵 <b>Sound Box</b>\n\n"
     )
 
-    for item in data:
 
-        name = item["name"]
+    for sound in data:
 
-        sound_id = item.get(
+        sound_id = sound.get(
             "sound_id"
         )
+
+        name = sound.get(
+            "name",
+            "Unknown"
+        )
+
 
         if sound_id is not None:
 
             text += (
-                f"<code>{sound_id}</code>"
+                f"🔊 <code>{sound_id}</code>"
                 f" — "
                 f"<code>{name}</code>\n"
             )
@@ -373,6 +490,7 @@ async def sounds_command(message: Message):
             text += (
                 f"• <code>{name}</code>\n"
             )
+
 
     await message.answer(
         text,
@@ -384,39 +502,72 @@ async def sounds_command(message: Message):
 # GET SOUND
 # ============================================================
 
-@dp.message(Command("get"))
-async def get_command(message: Message):
+@dp.message(
+    Command("get")
+)
+async def get_command(
+    message: Message
+):
 
     args = message.text.split(
         maxsplit=1
     )
 
+
     if len(args) < 2:
 
         await message.answer(
             "Usage:\n"
-            "/get hello"
+            "<code>/get hello</code>",
+            parse_mode="HTML"
         )
 
         return
 
-    name = args[1].strip().lower()
 
-    sound = await get_sound(
-        name
-    )
+    value = args[1].strip().lower()
+
+
+    # First try ID
+    sound = None
+
+
+    try:
+
+        sound_id = int(
+            value
+        )
+
+        sound = await get_sound_by_id(
+            sound_id
+        )
+
+    except ValueError:
+
+        pass
+
+
+    # Then try name
+    if sound is None:
+
+        sound = await get_sound(
+            value
+        )
+
 
     if not sound:
 
         await message.answer(
-            "❌ Sound not found."
+            "❌ Sound nahi mila."
         )
 
         return
 
+
     file_id = sound[
         "bot_file_id"
     ]
+
 
     try:
 
@@ -438,15 +589,11 @@ async def get_command(message: Message):
                 file_id
             )
 
+
     except Exception as e:
 
-        print(
-            "Get sound error:",
-            repr(e)
-        )
-
         await message.answer(
-            "❌ Sound send failed."
+            f"❌ Send error:\n{e}"
         )
 
 
@@ -454,60 +601,79 @@ async def get_command(message: Message):
 # PLAY
 # ============================================================
 
-@dp.message(Command("play"))
-async def play_command(message: Message):
+@dp.message(
+    Command("play")
+)
+async def play_command(
+    message: Message
+):
 
     args = message.text.split(
         maxsplit=1
     )
 
+
     if len(args) < 2:
 
         await message.answer(
             "Usage:\n"
-            "/play hello"
+            "<code>/play 1</code>\n"
+            "or\n"
+            "<code>/play hello</code>",
+            parse_mode="HTML"
         )
 
         return
 
-    name = args[1].strip().lower()
 
-    sound = await get_sound(
-        name
-    )
+    value = args[1].strip().lower()
+
+
+    # ========================================================
+    # FIND SOUND
+    # ========================================================
+
+    sound = None
+
+
+    # Number = sound ID
+    try:
+
+        sound_id = int(
+            value
+        )
+
+        sound = await get_sound_by_id(
+            sound_id
+        )
+
+    except ValueError:
+
+        pass
+
+
+    # Name
+    if sound is None:
+
+        sound = await get_sound(
+            value
+        )
+
 
     if not sound:
 
         await message.answer(
-            "❌ Sound not found."
+            "❌ Sound nahi mila."
         )
 
         return
 
-    # --------------------------------------------------------
-    # Only owner can control VC
-    # --------------------------------------------------------
 
-    if not is_owner(message):
+    # ========================================================
+    # CACHE
+    # ========================================================
 
-        await message.answer(
-            "❌ Only owner can control playback."
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # Cache
-    # --------------------------------------------------------
-
-    base_dir = os.path.dirname(
-        os.path.abspath(__file__)
-    )
-
-    cache_dir = os.path.join(
-        base_dir,
-        "cache"
-    )
+    cache_dir = "cache"
 
     os.makedirs(
         cache_dir,
@@ -515,16 +681,22 @@ async def play_command(message: Message):
         exist_ok=True
     )
 
-    # Safe filename using Mongo ObjectId
-    filename = str(
+
+    mongo_id = str(
         sound["_id"]
     )
 
-    if sound["file_type"] == "audio":
+
+    file_type = sound.get(
+        "file_type"
+    )
+
+
+    if file_type == "audio":
 
         extension = ".mp3"
 
-    elif sound["file_type"] == "voice":
+    elif file_type == "voice":
 
         extension = ".ogg"
 
@@ -532,21 +704,26 @@ async def play_command(message: Message):
 
         extension = ".bin"
 
+
     path = os.path.join(
         cache_dir,
-        filename + extension
+        mongo_id + extension
     )
 
-    # --------------------------------------------------------
-    # Download only if not cached
-    # --------------------------------------------------------
+
+    # ========================================================
+    # DOWNLOAD IF NEEDED
+    # ========================================================
 
     try:
 
-        if not os.path.exists(path):
+        if not os.path.exists(
+            path
+        ):
 
             print(
-                f"Downloading {name}..."
+                "⬇️ Downloading sound:",
+                sound["name"]
             )
 
             await bot.download(
@@ -554,26 +731,23 @@ async def play_command(message: Message):
                 destination=path
             )
 
-        else:
 
-            print(
-                f"Using cached file: {path}"
-            )
-
-        # ----------------------------------------------------
+        # ====================================================
         # PLAY
-        # ----------------------------------------------------
+        # ====================================================
 
         await play_file(
             DEFAULT_VC_CHAT_ID,
             path
         )
 
+
         await message.answer(
-            f"▶️ Playing "
-            f"<b>{name}</b>",
+            f"▶️ Playing: "
+            f"<b>{sound['name']}</b>",
             parse_mode="HTML"
         )
+
 
     except Exception as e:
 
@@ -583,8 +757,8 @@ async def play_command(message: Message):
         )
 
         await message.answer(
-            f"❌ <b>Playback error:</b>\n"
-            f"<code>{str(e)}</code>",
+            f"❌ Playback error:\n"
+            f"<code>{e}</code>",
             parse_mode="HTML"
         )
 
@@ -593,11 +767,16 @@ async def play_command(message: Message):
 # STOP
 # ============================================================
 
-@dp.message(Command("stop"))
-async def stop_command(message: Message):
+@dp.message(
+    Command("stop")
+)
+async def stop_command(
+    message: Message
+):
 
     if not is_owner(message):
         return
+
 
     try:
 
@@ -606,7 +785,7 @@ async def stop_command(message: Message):
         )
 
         await message.answer(
-            "⏹ Playback stopped."
+            "⏹ Stopped."
         )
 
     except Exception as e:
@@ -620,11 +799,16 @@ async def stop_command(message: Message):
 # PAUSE
 # ============================================================
 
-@dp.message(Command("pause"))
-async def pause_command(message: Message):
+@dp.message(
+    Command("pause")
+)
+async def pause_command(
+    message: Message
+):
 
     if not is_owner(message):
         return
+
 
     try:
 
@@ -633,7 +817,7 @@ async def pause_command(message: Message):
         )
 
         await message.answer(
-            "⏸ Playback paused."
+            "⏸ Paused."
         )
 
     except Exception as e:
@@ -647,11 +831,16 @@ async def pause_command(message: Message):
 # RESUME
 # ============================================================
 
-@dp.message(Command("resume"))
-async def resume_command(message: Message):
+@dp.message(
+    Command("resume")
+)
+async def resume_command(
+    message: Message
+):
 
     if not is_owner(message):
         return
+
 
     try:
 
@@ -660,7 +849,7 @@ async def resume_command(message: Message):
         )
 
         await message.answer(
-            "▶️ Playback resumed."
+            "▶️ Resumed."
         )
 
     except Exception as e:
@@ -674,33 +863,45 @@ async def resume_command(message: Message):
 # DELETE
 # ============================================================
 
-@dp.message(Command("delete"))
-async def delete_command(message: Message):
+@dp.message(
+    Command("delete")
+)
+async def delete_command(
+    message: Message
+):
 
     if not is_owner(message):
         return
 
+
     if not is_private(message):
         return
+
 
     args = message.text.split(
         maxsplit=1
     )
 
+
     if len(args) < 2:
 
         await message.answer(
             "Usage:\n"
-            "/delete hello"
+            "<code>/delete hello</code>",
+            parse_mode="HTML"
         )
 
         return
 
-    name = args[1].strip().lower()
 
+    value = args[1].strip().lower()
+
+
+    # Name only for delete
     result = await delete_sound(
-        name
+        value
     )
+
 
     if result.deleted_count == 0:
 
@@ -710,11 +911,40 @@ async def delete_command(message: Message):
 
         return
 
+
     await message.answer(
         f"🗑 Deleted: "
-        f"<code>{name}</code>",
+        f"<code>{value}</code>",
         parse_mode="HTML"
     )
+
+
+# ============================================================
+# WEB SERVER
+# ============================================================
+
+async def start_web():
+
+    config = uvicorn.Config(
+
+        app,
+
+        host=WEB_HOST,
+
+        port=WEB_PORT,
+
+        loop="asyncio",
+
+        log_level="info"
+    )
+
+
+    server = uvicorn.Server(
+        config
+    )
+
+
+    await server.serve()
 
 
 # ============================================================
@@ -724,27 +954,42 @@ async def delete_command(message: Message):
 async def main():
 
     print(
-        "Initializing MongoDB..."
+        "🚀 Starting Sound Box..."
     )
 
+
+    # MongoDB
     await init_db()
 
     print(
-        "Initializing Telegram user..."
+        "✅ MongoDB connected."
     )
 
-    # IMPORTANT:
-    # Telethon + PyTgCalls are initialized
-    # inside THIS exact asyncio event loop.
 
+    # Telegram user + PyTgCalls
     await start_player()
 
+
     print(
-        "🎵 SoundBox started successfully."
+        "🎧 Player ready."
     )
+
+
+    # Start web server in SAME asyncio loop
+    web_task = asyncio.create_task(
+        start_web()
+    )
+
+
+    print(
+        f"🌐 Web server: "
+        f"http://0.0.0.0:{WEB_PORT}"
+    )
+
 
     try:
 
+        # Bot polling
         await dp.start_polling(
             bot
         )
@@ -752,8 +997,20 @@ async def main():
     finally:
 
         print(
-            "Shutting down..."
+            "🛑 Shutting down..."
         )
+
+
+        web_task.cancel()
+
+        try:
+
+            await web_task
+
+        except asyncio.CancelledError:
+
+            pass
+
 
         await shutdown_player()
 
@@ -761,11 +1018,19 @@ async def main():
 
 
 # ============================================================
-# ENTRY POINT
+# RUN
 # ============================================================
 
 if __name__ == "__main__":
 
-    asyncio.run(
-        main()
-    )
+    try:
+
+        asyncio.run(
+            main()
+        )
+
+    except KeyboardInterrupt:
+
+        print(
+            "👋 Stopped."
+        )
