@@ -21,9 +21,7 @@ from player import (
     play_file,
     stop,
     pause,
-    resume,
-    add_queue,
-    next_item
+    resume
 )
 
 
