@@ -1,9 +1,7 @@
 import os
-from typing import Any, Optional
 
-from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo.errors import DuplicateKeyError
+from dotenv import load_dotenv
 
 
 # ============================================================
@@ -25,32 +23,12 @@ DB_NAME = os.environ.get(
 # ============================================================
 
 mongo = AsyncIOMotorClient(
-    MONGO_URI,
-    serverSelectionTimeoutMS=10000,
+    MONGO_URI
 )
 
 db = mongo[DB_NAME]
 
-sounds = db["sounds"]
-
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def normalize_name(name: str) -> str:
-    """
-    Normalize sound names so:
-        Hello
-        HELLO
-        hello
-
-    all refer to the same sound.
-    """
-
-    return " ".join(
-        str(name).strip().lower().split()
-    )
+sounds = db.sounds
 
 
 # ============================================================
@@ -58,36 +36,15 @@ def normalize_name(name: str) -> str:
 # ============================================================
 
 async def init_db():
-    """
-    Check MongoDB connection and create indexes.
-    """
+
+    # --------------------------------------------------------
+    # Test MongoDB connection
+    # --------------------------------------------------------
 
     try:
 
         await mongo.admin.command(
             "ping"
-        )
-
-        await sounds.create_index(
-            "name",
-            unique=True,
-            name="unique_sound_name",
-        )
-
-        await sounds.create_index(
-            "sound_id",
-            unique=True,
-            sparse=True,
-            name="unique_sound_id",
-        )
-
-        await sounds.create_index(
-            "created_at",
-            name="created_at_index",
-        )
-
-        print(
-            f"✅ MongoDB connected: {DB_NAME}"
         )
 
     except Exception as e:
@@ -99,28 +56,132 @@ async def init_db():
         raise
 
 
-# ============================================================
-# SAVE SOUND
-# ============================================================
+    # --------------------------------------------------------
+    # Existing indexes
+    # --------------------------------------------------------
 
-async def save_sound(
-    data: dict[str, Any]
-):
-    """
-    Save a sound document.
+    existing_indexes = {}
 
-    Raises DuplicateKeyError if the name or ID
-    already exists.
-    """
+    async for index in sounds.list_indexes():
 
-    if "name" not in data:
-        raise ValueError(
-            "Sound name is required."
+        name = index.get("name")
+
+        key = index.get("key")
+
+        if name:
+            existing_indexes[name] = {
+                "key": key,
+                "unique": index.get(
+                    "unique",
+                    False
+                ),
+                "sparse": index.get(
+                    "sparse",
+                    False
+                )
+            }
+
+
+    # --------------------------------------------------------
+    # NAME INDEX
+    # --------------------------------------------------------
+    #
+    # Existing database already has:
+    #
+    # name_1
+    #
+    # So don't blindly create another index.
+    #
+
+    name_index = None
+
+    for index_name, info in existing_indexes.items():
+
+        key = info["key"]
+
+        if (
+            list(key.items())
+            == [("name", 1)]
+        ):
+
+            name_index = index_name
+            break
+
+
+    if name_index:
+
+        print(
+            f"✅ Name index exists: "
+            f"{name_index}"
         )
 
-    data["name"] = normalize_name(
-        data["name"]
+    else:
+
+        await sounds.create_index(
+            [("name", 1)],
+            unique=True,
+            name="sound_name_unique"
+        )
+
+        print(
+            "✅ Created name index."
+        )
+
+
+    # --------------------------------------------------------
+    # SOUND ID INDEX
+    # --------------------------------------------------------
+
+    sound_id_index = None
+
+    for index_name, info in existing_indexes.items():
+
+        key = info["key"]
+
+        if (
+            list(key.items())
+            == [("sound_id", 1)]
+        ):
+
+            sound_id_index = index_name
+            break
+
+
+    if sound_id_index:
+
+        print(
+            f"✅ Sound ID index exists: "
+            f"{sound_id_index}"
+        )
+
+    else:
+
+        await sounds.create_index(
+            [("sound_id", 1)],
+            unique=True,
+            sparse=True,
+            name="sound_id_unique"
+        )
+
+        print(
+            "✅ Created sound ID index."
+        )
+
+
+    # --------------------------------------------------------
+    # SUCCESS
+    # --------------------------------------------------------
+
+    print(
+        f"✅ MongoDB connected: {DB_NAME}"
     )
+
+
+# ============================================================
+# SAVE
+# ============================================================
+
+async def save_sound(data):
 
     return await sounds.insert_one(
         data
@@ -128,54 +189,31 @@ async def save_sound(
 
 
 # ============================================================
-# GET SOUND BY NAME
+# GET BY NAME
 # ============================================================
 
-async def get_sound(
-    name: str
-) -> Optional[dict]:
-
-    name = normalize_name(
-        name
-    )
+async def get_sound(name):
 
     return await sounds.find_one({
-
-        "name": name
-
+        "name": name.lower()
     })
 
 
 # ============================================================
-# GET SOUND BY ID
+# GET BY ID
 # ============================================================
 
 async def get_sound_by_id(
     sound_id: int
-) -> Optional[dict]:
-
-    try:
-
-        sound_id = int(
-            sound_id
-        )
-
-    except (
-        TypeError,
-        ValueError
-    ):
-
-        return None
+):
 
     return await sounds.find_one({
-
-        "sound_id": sound_id
-
+        "sound_id": int(sound_id)
     })
 
 
 # ============================================================
-# GET ALL SOUNDS
+# GET ALL
 # ============================================================
 
 async def get_all_sounds():
@@ -184,16 +222,8 @@ async def get_all_sounds():
         sounds
         .find({})
         .sort(
-            [
-                (
-                    "sound_id",
-                    1
-                ),
-                (
-                    "name",
-                    1
-                )
-            ]
+            "sound_id",
+            1
         )
     )
 
@@ -206,18 +236,10 @@ async def get_all_sounds():
 # DELETE BY NAME
 # ============================================================
 
-async def delete_sound(
-    name: str
-):
-
-    name = normalize_name(
-        name
-    )
+async def delete_sound(name):
 
     return await sounds.delete_one({
-
-        "name": name
-
+        "name": name.lower()
     })
 
 
@@ -229,84 +251,6 @@ async def delete_sound_by_id(
     sound_id: int
 ):
 
-    try:
-
-        sound_id = int(
-            sound_id
-        )
-
-    except (
-        TypeError,
-        ValueError
-    ):
-
-        return None
-
     return await sounds.delete_one({
-
-        "sound_id": sound_id
-
+        "sound_id": int(sound_id)
     })
-
-
-# ============================================================
-# UPDATE SOUND
-# ============================================================
-
-async def update_sound(
-    sound_id: int,
-    updates: dict[str, Any]
-):
-
-    try:
-
-        sound_id = int(
-            sound_id
-        )
-
-    except (
-        TypeError,
-        ValueError
-    ):
-
-        return None
-
-    if "name" in updates:
-
-        updates["name"] = normalize_name(
-            updates["name"]
-        )
-
-    return await sounds.update_one(
-
-        {
-            "sound_id": sound_id
-        },
-
-        {
-            "$set": updates
-        }
-
-    )
-
-
-# ============================================================
-# COUNT SOUNDS
-# ============================================================
-
-async def count_sounds():
-
-    return await sounds.count_documents({})
-
-
-# ============================================================
-# CLOSE DATABASE
-# ============================================================
-
-async def close_db():
-
-    mongo.close()
-
-    print(
-        "🔌 MongoDB connection closed."
-    )
