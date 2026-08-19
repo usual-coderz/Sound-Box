@@ -1,6 +1,8 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
+
 from telethon import TelegramClient
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
@@ -12,75 +14,50 @@ from pytgcalls.types import MediaStream
 
 load_dotenv()
 
-API_ID = int(
-    os.environ["API_ID"]
-)
-
-API_HASH = os.environ[
-    "API_HASH"
-]
-
-PHONE_NUMBER = os.environ[
-    "PHONE_NUMBER"
-]
+API_ID = int(os.environ["API_ID"])
+API_HASH = os.environ["API_HASH"]
+PHONE_NUMBER = os.environ["PHONE_NUMBER"]
 
 
 # ============================================================
 # PATHS
 # ============================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
+BASE_DIR = Path(__file__).resolve().parent
 
-SESSION_DIR = os.path.join(
-    BASE_DIR,
-    "sessions"
-)
+SESSION_DIR = BASE_DIR / "sessions"
+CACHE_DIR = BASE_DIR / "cache"
 
-CACHE_DIR = os.path.join(
-    BASE_DIR,
-    "cache"
-)
-
-os.makedirs(
-    SESSION_DIR,
+SESSION_DIR.mkdir(
     mode=0o700,
+    parents=True,
     exist_ok=True
 )
 
-os.makedirs(
-    CACHE_DIR,
+CACHE_DIR.mkdir(
     mode=0o700,
+    parents=True,
     exist_ok=True
 )
 
-SESSION_PATH = os.path.join(
-    SESSION_DIR,
-    "soundbox"
+SESSION_PATH = str(
+    SESSION_DIR / "soundbox"
 )
 
 
 # ============================================================
-# GLOBAL CLIENTS
+# GLOBALS
 # ============================================================
 
-# IMPORTANT:
-# In objects ko module import ke time create nahi karna.
-# start_player() ke andar create karna hai.
-#
-# Isse aiogram + Telethon + PyTgCalls
-# same asyncio event loop use karenge.
+user: TelegramClient | None = None
+calls: PyTgCalls | None = None
 
-user = None
-calls = None
-
-current_chat = None
-current_file = None
+current_chat: int | str | None = None
+current_file: str | None = None
 
 
 # ============================================================
-# START
+# START PLAYER
 # ============================================================
 
 async def start_player():
@@ -88,11 +65,10 @@ async def start_player():
     global user
     global calls
 
-    if user is not None:
+    if calls is not None:
         return
 
     print("🎧 Starting Telegram user...")
-
 
     # --------------------------------------------------------
     # Telethon
@@ -104,16 +80,11 @@ async def start_player():
         API_HASH
     )
 
-
     await user.start(
         phone=PHONE_NUMBER
     )
 
-
-    print(
-        "✅ Telegram user connected."
-    )
-
+    print("✅ Telegram user connected.")
 
     # --------------------------------------------------------
     # PyTgCalls
@@ -123,66 +94,74 @@ async def start_player():
         user
     )
 
-
     await calls.start()
 
-
-    print(
-        "✅ PyTgCalls started."
-    )
+    print("✅ PyTgCalls started.")
+    print("🎧 Player ready.")
 
 
 # ============================================================
-# PLAY
+# CHECK PLAYER
+# ============================================================
+
+def _check_player():
+
+    if user is None:
+        raise RuntimeError(
+            "Telegram user is not started."
+        )
+
+    if calls is None:
+        raise RuntimeError(
+            "PyTgCalls is not started."
+        )
+
+
+# ============================================================
+# PLAY FILE
 # ============================================================
 
 async def play_file(
-    chat_id: int,
+    chat_id: int | str,
     file_path: str
 ):
 
     global current_chat
     global current_file
 
+    _check_player()
 
-    if calls is None:
+    file_path = str(
+        Path(file_path).resolve()
+    )
 
-        raise RuntimeError(
-            "PyTgCalls is not started."
-        )
-
-
-    if not os.path.isfile(
-        file_path
-    ):
+    if not os.path.isfile(file_path):
 
         raise FileNotFoundError(
             f"Audio file not found: {file_path}"
         )
 
+    if os.path.getsize(file_path) == 0:
 
-    current_chat = chat_id
-
-    current_file = file_path
-
+        raise RuntimeError(
+            "Audio file is empty."
+        )
 
     print(
-        f"▶ Playing: {file_path}"
+        f"▶️ Playing: {file_path}"
     )
 
     print(
         f"📞 VC Chat: {chat_id}"
     )
 
-
     # --------------------------------------------------------
     # PyTgCalls 2.3.x
     # --------------------------------------------------------
     #
-    # join_group_call() use nahi karna.
+    # join_group_call() nahi hai.
     #
-    # play() automatically starts/joins
-    # the group call.
+    # calls.play() hi stream ko VC mein start karta hai.
     #
 
     stream = MediaStream(
@@ -190,16 +169,35 @@ async def play_file(
         video_flags=MediaStream.Flags.IGNORE
     )
 
+    try:
 
-    await calls.play(
-        chat_id,
-        stream
-    )
+        await calls.play(
+            chat_id,
+            stream
+        )
 
+    except Exception:
 
-    print(
-        "✅ Playback started."
-    )
+        # Agar previous call state stuck ho to
+        # ek baar leave karke retry.
+        try:
+
+            await calls.leave_call(
+                chat_id
+            )
+
+        except Exception:
+            pass
+
+        await calls.play(
+            chat_id,
+            stream
+        )
+
+    current_chat = chat_id
+    current_file = file_path
+
+    print("✅ Playback started.")
 
 
 # ============================================================
@@ -207,16 +205,14 @@ async def play_file(
 # ============================================================
 
 async def stop(
-    chat_id: int
+    chat_id: int | str
 ):
 
     global current_chat
     global current_file
 
-
     if calls is None:
         return
-
 
     try:
 
@@ -224,16 +220,13 @@ async def stop(
             chat_id
         )
 
-        print(
-            "⏹ Call stopped."
-        )
+        print("⏹ Playback stopped.")
 
     except Exception as e:
 
         print(
-            f"❌ Stop error: {e}"
+            f"⚠️ Stop warning: {e}"
         )
-
 
     current_chat = None
     current_file = None
@@ -244,24 +237,16 @@ async def stop(
 # ============================================================
 
 async def pause(
-    chat_id: int
+    chat_id: int | str
 ):
 
-    if calls is None:
-
-        raise RuntimeError(
-            "PyTgCalls is not started."
-        )
-
+    _check_player()
 
     await calls.pause(
         chat_id
     )
 
-
-    print(
-        "⏸ Playback paused."
-    )
+    print("⏸ Playback paused.")
 
 
 # ============================================================
@@ -269,24 +254,16 @@ async def pause(
 # ============================================================
 
 async def resume(
-    chat_id: int
+    chat_id: int | str
 ):
 
-    if calls is None:
-
-        raise RuntimeError(
-            "PyTgCalls is not started."
-        )
-
+    _check_player()
 
     await calls.resume(
         chat_id
     )
 
-
-    print(
-        "▶ Playback resumed."
-    )
+    print("▶️ Playback resumed.")
 
 
 # ============================================================
@@ -294,16 +271,11 @@ async def resume(
 # ============================================================
 
 async def set_volume(
-    chat_id: int,
+    chat_id: int | str,
     volume: int
 ):
 
-    if calls is None:
-
-        raise RuntimeError(
-            "PyTgCalls is not started."
-        )
-
+    _check_player()
 
     volume = max(
         0,
@@ -313,10 +285,13 @@ async def set_volume(
         )
     )
 
-
     await calls.change_volume_call(
         chat_id,
         volume
+    )
+
+    print(
+        f"🔊 Volume: {volume}"
     )
 
 
@@ -333,6 +308,18 @@ def get_current():
 
 
 # ============================================================
+# IS RUNNING
+# ============================================================
+
+def is_running():
+
+    return (
+        user is not None
+        and calls is not None
+    )
+
+
+# ============================================================
 # SHUTDOWN
 # ============================================================
 
@@ -340,11 +327,34 @@ async def shutdown_player():
 
     global user
     global calls
+    global current_chat
+    global current_file
 
     print(
         "🛑 Shutting down player..."
     )
 
+    # --------------------------------------------------------
+    # Leave current VC
+    # --------------------------------------------------------
+
+    if calls is not None and current_chat is not None:
+
+        try:
+
+            await calls.leave_call(
+                current_chat
+            )
+
+        except Exception as e:
+
+            print(
+                f"⚠️ Leave call error: {e}"
+            )
+
+    # --------------------------------------------------------
+    # Stop PyTgCalls
+    # --------------------------------------------------------
 
     if calls is not None:
 
@@ -355,9 +365,12 @@ async def shutdown_player():
         except Exception as e:
 
             print(
-                f"PyTgCalls shutdown error: {e}"
+                f"⚠️ PyTgCalls stop error: {e}"
             )
 
+    # --------------------------------------------------------
+    # Disconnect Telethon
+    # --------------------------------------------------------
 
     if user is not None:
 
@@ -368,13 +381,14 @@ async def shutdown_player():
         except Exception as e:
 
             print(
-                f"Telegram shutdown error: {e}"
+                f"⚠️ Telegram disconnect error: {e}"
             )
-
 
     calls = None
     user = None
 
+    current_chat = None
+    current_file = None
 
     print(
         "✅ Player stopped."
